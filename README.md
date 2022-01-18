@@ -35,8 +35,8 @@ nftSalesBot({
   // Websocket connection to Ethereum)
   websocketURI: process.env.WEBSOCKET_URI,
 
-  // NFT smart contract address
-  contractAddress: process.env.CONTRACT_ADDRESS,
+  // NFT smart contract addresses
+  contractAddresses: process.env.CONTRACT_ADDRESSES,
 
   // Bot token set up in Discord developer portal
   discordBotToken: process.env.DISCORD_BOT_TOKEN,
@@ -53,7 +53,7 @@ nftSalesBot({
 The default export takes one argument which is an object with the following keys and values:
 
 - `websocketURI` - Required. This is a websocket connection to Ethereum. You can easily get one of these by signing up for [Infura](https://infura.io).
-- `contractAddress` - Required. The smart contract address for your ERC-721 smart contract.
+- `contractAddresses` - Required. Array of smart contract addresses for your ERC-721.
 - `discordBotToken` - Required. The Discord bot token for you bot. Create an application within the [Discord developer portal](https://discord.com/developers/applications) and then create a bot within that application that can has permissions to post messages. You can reveal the token from the bot screen.
 - `discordChannelId` - Required. The ID of the channel you want to bot to post in. You can get this by turning on Developer mode in Discord and then clicking the settings icon of the channel.
 - `metadataCb` - Optional. A function that receives the raw NFT metadata as the first argument. Must return an object of the following type `{ name: string; image: string }`
