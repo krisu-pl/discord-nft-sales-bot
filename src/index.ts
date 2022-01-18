@@ -4,9 +4,8 @@ import abi from "./erc721abi.json";
 import BN from "bignumber.js";
 import { createMessage, discordSetup } from "./discord";
 import { fetchMetadata } from "./utils";
-import debug from "debug";
-
-const log = debug("DISCORD_BOT");
+import { EthPrice } from "./price";
+import { Contract } from "web3-eth-contract";
 
 type TransferEvent = {
   returnValues: {
@@ -26,20 +25,22 @@ export type MetadataCb = (metadata: any) => {
 type Options = {
   metadataCb?: MetadataCb;
   websocketURI: string;
-  contractAddress: string;
+  contractAddresses: string[];
   discordBotToken: string;
   discordChannelId: string;
 };
 
 const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".toLowerCase();
 
-async function nftSalesBot(options: Options) {
-  log("Setting up discord bot");
+export const nftSalesBot = async (options: Options) => {
+  console.log("Setting up discord bot");
   const channel = await discordSetup(
     options.discordBotToken,
     options.discordChannelId
   );
-  log("Setting up discord bot complete");
+  console.log("Setting up discord bot complete");
+
+  await EthPrice.get();
 
   const web3 = new Web3(
     new Web3.providers.WebsocketProvider(options.websocketURI, {
@@ -56,19 +57,15 @@ async function nftSalesBot(options: Options) {
     })
   );
 
-  const contract = new web3.eth.Contract(
-    abi as unknown as AbiItem,
-    options.contractAddress
-  );
-
-  async function transferCallback(res: TransferEvent) {
-    log("Transfer event received.");
-    log("Getting transaction");
+  async function transferCallback(
+    res: TransferEvent,
+    contract: Contract,
+    contractAddress: string
+  ) {
+    console.log("Transfer event received.");
     const tx = await web3.eth.getTransaction(res.transactionHash);
-    log("Getting transaction receipt");
     const txReceipt = await web3.eth.getTransactionReceipt(res.transactionHash);
     let wethValue = new BN(0);
-    log(txReceipt.logs);
     txReceipt?.logs.forEach((currentLog) => {
       // check if WETH was transferred during this transaction
       if (
@@ -79,12 +76,14 @@ async function nftSalesBot(options: Options) {
           "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".toLowerCase()
       ) {
         const v = `${parseInt(currentLog.data)}`;
-        log(`Weth value found ${v}`);
+        console.log(`Weth value found ${v}`);
         wethValue = wethValue.plus(web3.utils.fromWei(v));
       }
     });
     let value = new BN(web3.utils.fromWei(tx.value));
-    log(`WETH Value: ${wethValue.toFixed()}, ETH Value: ${value.toFixed()}`);
+    console.log(
+      `WETH Value: ${wethValue.toFixed()}, ETH Value: ${value.toFixed()}`
+    );
     value = value.gt(0) ? value : wethValue;
     if (value.gt(0)) {
       const uri = await contract.methods
@@ -94,34 +93,42 @@ async function nftSalesBot(options: Options) {
         options.metadataCb ?? ((m: any) => m)
       )(uri);
       const block = await web3.eth.getBlock(res.blockNumber);
+      const valueUSD = (await EthPrice.get()) * value.toNumber();
       const message = createMessage(
         metadata,
         value.toFixed(),
+        valueUSD.toFixed(),
         res.returnValues.to,
         res.returnValues.from,
         block.timestamp,
-        options.contractAddress,
+        contractAddress,
         res.returnValues.tokenId
       );
-      log("Try sending message");
+      console.log("Try sending message");
       try {
         await channel.send({ embeds: [message] });
       } catch (e: any) {
-        console.log("Error sending message", " ", e.message);
+        console.error("Error sending message", " ", e.message);
       }
     }
   }
 
-  log("Adding contract event listener");
-  contract.events.Transfer(async (err: any, res: TransferEvent) => {
-    if (!err) {
-      await transferCallback(res);
-    }
+  console.log("Adding contracts event listeners");
+
+  options.contractAddresses.forEach((contractAddress) => {
+    const contract = new web3.eth.Contract(
+      abi as unknown as AbiItem,
+      contractAddress
+    );
+
+    contract.events.Transfer(async (err: any, res: TransferEvent) => {
+      if (!err) {
+        await transferCallback(res, contract, contractAddress);
+      }
+    });
   });
 
   return {
     test: transferCallback,
   };
-}
-
-export default nftSalesBot;
+};
